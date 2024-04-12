@@ -2,7 +2,7 @@ pipeline {
     agent any
     tools {
         maven 'maven 3.9.6'
-        gradle 'gradle 8.7' // Specify the Gradle tool version
+        gradle 'gradle' // Specify the Gradle tool version
     }
     stages {
         stage('Checkout and Build') {
