@@ -1,97 +1,58 @@
 pipeline {
-  agent any
-	
-  triggers {
-    pollSCM('* * * * *')
-  }
-	
-  stages {
-    stage("Compile") {
-      steps {
-        sh "./gradlew compileJava"
-      }
+    agent any
+    tools {
+        maven 'maven 3.9.6'
+        gradle 'gradle 8.7' // Specify the Gradle tool version
     }
-	  
-    stage("Unit test") {
-      steps {
-        sh "./gradlew test"
-      }
-    }
-	
-    stage("Code coverage") {
-      steps {
-        sh "./gradlew jacocoTestReport"
-        publishHTML (target: [
-               reportDir: 'build/reports/jacoco/test/html',
-               reportFiles: 'index.html',
-               reportName: "JaCoCo Report" ])
-        sh "./gradlew jacocoTestCoverageVerification"
-      }
-    }
+    stages {
+        stage('Checkout and Build') {
+            steps {
+                script {
+                    // Checkout the repository
+                    checkout([$class: 'GitSCM', branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/Pavizhamleenmary/devops-automation']]])
 
-    stage("Static code analysis") {
-      steps {
-        sh "./gradlew checkstyleMain"
-        publishHTML (target: [
-               reportDir: 'build/reports/checkstyle/',
-               reportFiles: 'main.html',
-               reportName: "Checkstyle Report" ])
-      }
-    }
+                    // Determine whether it's a Maven or Gradle project
+                    def isMaven = fileExists('pom.xml')
+                    def isGradle = fileExists('build.gradle')
 
-    stage("Build") {
-      steps {
-        sh "./gradlew build"
-      }
-    }
+                    if (isMaven) {
+                        echo 'Building Maven project...'
+                        sh 'mvn clean package' // Package the application into a JAR file
+                    } else if (isGradle) {
+                        echo 'Building Gradle project...'
+                        sh 'gradle clean build' // Execute Gradle build
+                    } else {
+                        error 'Unable to identify build tool. No pom.xml or build.gradle found.'
+                    }
 
-    stage("Docker build") {
-      steps {
-        sh "docker build -t leszko/calculator:${BUILD_TIMESTAMP} ."
-      }
-    }
+                    // Copy the JAR file to S3 bucket
+                    def jarFileName = ''
+                    if (isGradle) {
+                        dir('build/libs') {
+                            // Find the JAR file dynamically
+                            jarFileName = sh(script: 'ls *.jar', returnStdout: true).trim()
+                        }
+                    } else {
+                        dir('target') {
+                            // Find the JAR file dynamically
+                            jarFileName = sh(script: 'ls *.jar', returnStdout: true).trim()
+                        }
+                    }
 
-    stage("Docker login") {
-      steps {
-        withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'leszko',
-                          usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
-          sh "docker login --username $USERNAME --password $PASSWORD"
+                    // Copy the JAR file to S3 bucket
+                    withCredentials([
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding',
+                            credentialsId: 'AWSCredentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
+                    ]) {
+                        sh "aws s3 cp ${jarFileName} s3://citbucketlatest/"
+                    }
+                }
+            }
         }
-      }
+        // Other stages here...
     }
-
-    stage("Docker push") {
-      steps {
-        sh "docker push leszko/calculator:${BUILD_TIMESTAMP}"
-      }
-    }
-
-    stage("Deploy to staging") {
-      steps {
-        sh "ansible-playbook playbook.yml -i inventory/staging"
-        sleep 60
-      }
-    }
-
-    stage("Acceptance test") {
-      steps {
-	sh "./acceptance_test.sh 192.168.0.166"
-      }
-    }
-	  
-    // Performance test stages
-
-    stage("Release") {
-      steps {
-        sh "ansible-playbook playbook.yml -i inventory/production"
-        sleep 60
-      }
-    }
-
-    stage("Smoke test") {
-      steps {
-	sh "./smoke_test.sh 192.168.0.115"
-      }
-    }
-  }
 }
