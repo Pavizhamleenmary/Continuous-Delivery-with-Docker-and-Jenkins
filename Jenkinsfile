@@ -9,7 +9,7 @@ pipeline {
             steps {
                 script {
                     // Checkout the repository
-                    checkout([$class: 'GitSCM', branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/Pavizhamleenmary/devops-automation']]])
+                    checkout([$class: 'GitSCM', branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/Pavizhamleenmary/Continuous-Delivery-with-Docker-and-Jenkins']]])
 
                     // Determine whether it's a Maven or Gradle project
                     def isMaven = fileExists('pom.xml')
